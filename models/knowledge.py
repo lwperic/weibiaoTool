@@ -23,6 +23,10 @@ class EntityType(str, Enum):
     SOLUTION = "solution"        # 解决方案
     MAINTENANCE = "maintenance"  # 维修
     INSPECTION = "inspection"    # 检查
+    PERSON = "person"            # 人员
+    TOOL = "tool"                # 工具
+    LOCATION = "location"        # 位置
+    TIME = "time"                # 时间
     OTHER = "other"              # 其他
 
 
@@ -39,6 +43,17 @@ class RelationType(str, Enum):
     MAINTAINED_BY = "maintained_by"  # 被...维护
     FOLLOWS = "follows"         # 遵循...
     DEPENDS_ON = "depends_on"    # 依赖于...
+    COMPILED_BY = "compiled_by"  # 由...编译/编制
+    CREATED_BY = "created_by"    # 由...创建
+    OPERATED_BY = "operated_by"  # 由...操作
+    LOCATED_IN = "located_in"    # 位于...
+    CONTAINS = "contains"        # 包含
+    BELONGS_TO = "belongs_to"    # 属于
+    CONNECTS_TO = "connects_to"  # 连接到
+    REPLACES = "replaces"        # 替换
+    IMPROVES = "improves"        # 改善
+    PREVENTS = "prevents"        # 防止
+    OTHER = "other"              # 其他
 
 
 class Entity(BaseModel):
@@ -75,8 +90,20 @@ class Entity(BaseModel):
         return self.dict()
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Entity":
-        """从字典创建实体对象"""
+    def from_dict(cls, data: Union[str, Dict[str, Any]]) -> "Entity":
+        """从字典或JSON字符串创建实体对象"""
+        # 如果data是字符串，先解析为字典
+        if isinstance(data, str):
+            try:
+                import json
+                data = json.loads(data)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"无法解析JSON数据: {str(e)}")
+
+        # 确保data是字典类型
+        if not isinstance(data, dict):
+            raise ValueError("数据必须是字典或可解析为字典的JSON字符串")
+
         # 处理时间字段
         if "created_at" in data and isinstance(data["created_at"], str):
             data["created_at"] = datetime.fromisoformat(data["created_at"])
@@ -164,8 +191,20 @@ class Relation(BaseModel):
         return self.dict()
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Relation":
-        """从字典创建关系对象"""
+    def from_dict(cls, data: Union[str, Dict[str, Any]]) -> "Relation":
+        """从字典或JSON字符串创建关系对象"""
+        # 如果data是字符串，先解析为字典
+        if isinstance(data, str):
+            try:
+                import json
+                data = json.loads(data)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"无法解析JSON数据: {str(e)}")
+
+        # 确保data是字典类型
+        if not isinstance(data, dict):
+            raise ValueError("数据必须是字典或可解析为字典的JSON字符串")
+
         # 处理时间字段
         if "created_at" in data and isinstance(data["created_at"], str):
             data["created_at"] = datetime.fromisoformat(data["created_at"])
@@ -232,8 +271,20 @@ class KnowledgeGraph(BaseModel):
         return self.dict()
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "KnowledgeGraph":
-        """从字典创建知识图谱对象"""
+    def from_dict(cls, data: Union[str, Dict[str, Any]]) -> "KnowledgeGraph":
+        """从字典或JSON字符串创建知识图谱对象"""
+        # 如果data是字符串，先解析为字典
+        if isinstance(data, str):
+            try:
+                import json
+                data = json.loads(data)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"无法解析JSON数据: {str(e)}")
+
+        # 确保data是字典类型
+        if not isinstance(data, dict):
+            raise ValueError("数据必须是字典或可解析为字典的JSON字符串")
+
         # 处理时间字段
         if "created_at" in data and isinstance(data["created_at"], str):
             data["created_at"] = datetime.fromisoformat(data["created_at"])
@@ -284,16 +335,36 @@ class KnowledgeGraph(BaseModel):
         return [r for r in self.relations if r.type == relation_type]
 
     def to_cypher(self) -> str:
-        """转换为Cypher创建语句"""
+        """转换为可幂等执行的 Cypher 语句（MERGE）。"""
         statements = []
 
-        # 添加实体
+        # 节点
         for entity in self.entities:
-            statements.append(entity.to_cypher())
+            label = entity.type.value
+            props = ["id: '%s'" % entity.id, "name: '%s'" % entity.name.replace("'", "\\'")]
+            for k, v in (entity.properties or {}).items():
+                if isinstance(v, str):
+                    v_str = v.replace("'", "\\'")
+                    props.append(f"{k}: '{v_str}'")
+                else:
+                    props.append(f"{k}: {v}")
+            statements.append(f"MERGE (:`{label}` {{{', '.join(props)}}});\n")
 
-        # 添加关系
+        # 关系
         for relation in self.relations:
-            statements.append(relation.to_cypher())
+            rel_label = relation.type.value
+            rprops = ["id: '%s'" % relation.id]
+            for k, v in (relation.properties or {}).items():
+                if isinstance(v, str):
+                    v_str = v.replace("'", "\\'")
+                    rprops.append(f"{k}: '{v_str}'")
+                else:
+                    rprops.append(f"{k}: {v}")
+
+            statements.append(
+                "MATCH (s {id: '%s'}), (t {id: '%s'})\n" % (relation.source, relation.target) +
+                f"MERGE (s)-[:`{rel_label}` {{{', '.join(rprops)}}}]->(t);\n"
+            )
 
         return "".join(statements)
 

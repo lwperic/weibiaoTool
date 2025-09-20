@@ -73,6 +73,17 @@ class DocumentService:
             logger.warning(f"检测到重复文件: {file_path.name} 与 {existing_doc.name} 相同")
             raise ValueError(f"文件已存在: {existing_doc.name}")
 
+        # 验证文档内容
+        try:
+            from utils.word_reader import read_word_text
+            content = read_word_text(file_path)
+            if not content or not content.strip():
+                raise ValueError("文档内容为空或无法读取")
+            logger.info(f"文档内容验证成功: {file_path.name}, 内容长度: {len(content)}")
+        except Exception as e:
+            logger.error(f"文档内容验证失败: {file_path.name} - {str(e)}")
+            raise ValueError(f"文档内容验证失败: {str(e)}")
+
         # 移动文件到上传目录
         dest_path = self.upload_dir / file_path.name
         shutil.copy2(file_path, dest_path)
@@ -437,32 +448,15 @@ class DocumentService:
             return None
 
         try:
-            # 使用python-docx库读取Word文档内容
-            from docx import Document as DocxDocument
-            
-            doc = DocxDocument(file_path)
-            content = []
-            
-            # 读取文档中的所有表格
-            for table in doc.tables:
-                for row in table.rows:
-                    row_text = []
-                    for cell in row.cells:
-                        row_text.append(cell.text.strip())
-                    content.append("\t".join(row_text))
-            
-            # 读取文档中的所有段落
-            for paragraph in doc.paragraphs:
-                if paragraph.text.strip():
-                    content.append(paragraph.text.strip())
-            
-            # 返回预览内容
-            preview_text = "\n".join(content)
-            
+            # 统一通过工具读取文本（兼容 .doc/.docx）
+            from utils.word_reader import read_word_text
+
+            preview_text = read_word_text(file_path)
+
             # 限制预览长度
             if len(preview_text) > 5000:
                 preview_text = preview_text[:5000] + "\n...[内容已截断]"
-            
+
             return preview_text
         except Exception as e:
             logger.error(f"获取文档预览失败: {str(e)}")

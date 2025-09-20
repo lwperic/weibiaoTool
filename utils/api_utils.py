@@ -1,16 +1,10 @@
 """
-API调用工具
+API工具模块
 """
 
-import time
-import hashlib
 import json
-from typing import Dict, Any, Optional, Union, List
-import requests
-import logging
-from datetime import datetime
-
-from config.settings import settings
+import time
+from typing import Dict, Any, Optional, Union
 from utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -27,7 +21,6 @@ class APIClient:
             settings: 配置对象
         """
         self.settings = settings
-        self.session = requests.Session()
         self.timeout = settings.default_timeout
 
     def request(
@@ -57,20 +50,22 @@ class APIClient:
             backoff: 重试退避因子
 
         Returns:
-            响应数据
+            API响应
 
         Raises:
-            Exception: 请求失败时抛出异常
+            Exception: 请求失败
         """
-        if timeout is None:
-            timeout = self.timeout
+        import requests
 
-        # 设置默认请求头
+        timeout = timeout or self.timeout
+
+        # 默认请求头
         default_headers = {
-            "Content-Type": "application/json",
-            "User-Agent": f"{settings.app_name}/{settings.app_version}"
+            'Accept': 'application/json',
+            'Content-Type': 'application/json'
         }
 
+        # 合并请求头
         if headers:
             default_headers.update(headers)
 
@@ -78,7 +73,8 @@ class APIClient:
 
         for attempt in range(retries):
             try:
-                response = self.session.request(
+                # 直接使用requests，不使用session
+                response = requests.request(
                     method=method,
                     url=url,
                     params=params,
@@ -91,7 +87,7 @@ class APIClient:
                 response.raise_for_status()
                 return response.json()
 
-            except requests.exceptions.RequestException as e:
+            except Exception as e:
                 last_exception = e
                 logger.warning(f"请求失败 (尝试 {attempt + 1}/{retries}): {str(e)}")
 
@@ -125,14 +121,9 @@ class DeepSeekClient(APIClient):
         if not self.api_key:
             raise ValueError("DeepSeek API密钥未配置")
 
-        # 设置认证头
-        self.session.headers.update({
-            "Authorization": f"Bearer {self.api_key}"
-        })
-
     def chat_completion(
         self,
-        messages: List[Dict[str, str]],
+        messages: list,
         temperature: float = 0.7,
         max_tokens: Optional[int] = None,
         stream: bool = False,
@@ -165,37 +156,50 @@ class DeepSeekClient(APIClient):
 
         payload.update(kwargs)
 
-        return self.request("POST", url, json=payload)
+        # 设置认证头
+        headers = {
+            "Authorization": f"Bearer {self.api_key}"
+        }
+
+        return self.request("POST", url, json=payload, headers=headers)
 
 
-def generate_hash(content: Union[str, Dict]) -> str:
+def generate_hash(content: Union[str, Dict, bytes]) -> str:
     """
     生成内容的哈希值
 
     Args:
-        content: 内容，可以是字符串或字典
+        content: 内容，可以是字符串、字典或字节
 
     Returns:
         哈希值
     """
+    import hashlib
+
     if isinstance(content, dict):
         content = json.dumps(content, sort_keys=True)
 
-    return hashlib.md5(content.encode()).hexdigest()
+    # 如果是bytes类型，直接使用；如果是str类型，则编码为bytes
+    if isinstance(content, bytes):
+        content_bytes = content
+    else:
+        content_bytes = content.encode('utf-8')
+
+    return hashlib.md5(content_bytes).hexdigest()
 
 
-def safe_json_loads(json_str: str) -> Optional[Dict]:
+def safe_json_loads(json_str: str) -> Optional[Dict[str, Any]]:
     """
-    安全地解析JSON字符串
+    安全的JSON解析
 
     Args:
         json_str: JSON字符串
 
     Returns:
-        解析后的字典，解析失败返回None
+        解析后的字典，解析失败时返回None
     """
     try:
         return json.loads(json_str)
-    except json.JSONDecodeError:
-        logger.error(f"JSON解析失败: {json_str}")
+    except (json.JSONDecodeError, TypeError, ValueError) as e:
+        logger.warning(f"JSON解析失败: {str(e)}")
         return None

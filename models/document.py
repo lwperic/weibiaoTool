@@ -1,8 +1,8 @@
 """
 文档模型
 """
-
-from typing import Optional, Dict, Any, List
+import hashlib
+from typing import Optional, Dict, Any, List, Union
 from datetime import datetime
 from enum import Enum
 from pathlib import Path
@@ -59,8 +59,20 @@ class Document(BaseModel):
         return self.dict()
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "Document":
-        """从字典创建文档对象"""
+    def from_dict(cls, data: Union[str, Dict[str, Any]]) -> "Document":
+        """从字典或JSON字符串创建文档对象"""
+        # 如果data是字符串，先解析为字典
+        if isinstance(data, str):
+            try:
+                import json
+                data = json.loads(data)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"无法解析JSON数据: {str(e)}")
+
+        # 确保data是字典类型
+        if not isinstance(data, dict):
+            raise ValueError("数据必须是字典或可解析为字典的JSON字符串")
+
         # 处理时间字段
         if "created_at" in data and isinstance(data["created_at"], str):
             data["created_at"] = datetime.fromisoformat(data["created_at"])
@@ -139,3 +151,20 @@ class Document(BaseModel):
             return False
 
         return True
+
+    # models/document.py
+    @classmethod
+    def _calculate_file_hash(cls, file_path: Path) -> str:
+        """
+        计算文件哈希值
+        Args:
+            file_path: 文件路径
+
+        Returns:
+            文件哈希值
+        """
+        sha256 = hashlib.sha256()
+        with open(file_path, 'rb') as f:
+            while chunk := f.read(4096):
+                sha256.update(chunk)  # 直接更新二进制数据，不需要编码
+        return sha256.hexdigest()

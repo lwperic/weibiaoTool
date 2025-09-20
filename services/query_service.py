@@ -234,18 +234,30 @@ class QueryService:
         prompt = self._build_cypher_prompt(query_text)
 
         # 调用大模型
-        response = self.llm_client.chat_completion(
-            messages=[
-                {"role": "system", "content": "你是一个专业的Cypher查询助手，能够将自然语言查询转换为Cypher查询语句。"},
-                {"role": "user", "content": prompt}
-            ],
-            temperature=0.2,
-            max_tokens=1000
-        )
+        try:
+            response = self.llm_client.chat_completion(
+                messages=[
+                    {"role": "system", "content": "你是一个专业的Cypher查询助手，能够将自然语言查询转换为Cypher查询语句。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.2,
+                max_tokens=1000
+            )
+        except Exception as e:
+            logger.error(f"大模型调用失败: {str(e)}")
+            # 返回一个简单的默认查询
+            return "MATCH (n) RETURN n LIMIT 10"
 
         # 提取Cypher查询
-        result_text = response["choices"][0]["message"]["content"]
-        cypher_query = self._extract_cypher_from_response(result_text)
+        try:
+            result_text = response["choices"][0]["message"]["content"]
+            # 确保文本是UTF-8编码
+            if isinstance(result_text, str):
+                result_text = result_text.encode('utf-8', errors='ignore').decode('utf-8')
+            cypher_query = self._extract_cypher_from_response(result_text)
+        except (KeyError, IndexError, UnicodeError) as e:
+            logger.error(f"提取Cypher查询失败: {str(e)}")
+            cypher_query = "MATCH (n) RETURN n LIMIT 10"
 
         return cypher_query
 
@@ -264,6 +276,16 @@ class QueryService:
 
 查询文本：{query_text}
 
+重要提示：
+- 由于Neo4j大小写敏感，请生成包含多个大小写变体的查询
+- 如果查询特定类型，请使用UNION合并多个变体
+- 例如：查询工具时使用：
+  MATCH (n:tool) RETURN n
+  UNION
+  MATCH (n:Tool) RETURN n
+  UNION
+  MATCH (n:TOOL) RETURN n
+
 可用的实体类型：
 - equipment: 设备
 - component: 部件
@@ -276,6 +298,10 @@ class QueryService:
 - solution: 解决方案
 - maintenance: 维修
 - inspection: 检查
+- person: 人员
+- tool: 工具
+- location: 位置
+- time: 时间
 - other: 其他
 
 可用的关系类型：
@@ -290,6 +316,16 @@ class QueryService:
 - maintained_by: 被...维护
 - follows: 遵循...
 - depends_on: 依赖于...
+- compiled_by: 由...编译/编制
+- created_by: 由...创建
+- operated_by: 由...操作
+- located_in: 位于...
+- contains: 包含
+- belongs_to: 属于
+- connects_to: 连接到
+- replaces: 替换
+- improves: 改善
+- prevents: 防止
 
 请只返回Cypher查询语句，不要包含其他解释。
 """
